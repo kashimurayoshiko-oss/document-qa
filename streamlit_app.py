@@ -3,7 +3,7 @@
 #   google-genai>=0.3.0
 #
 # Streamlit Cloud の Secrets に以下を登録してください:
-# GEMINI_API_KEY="<あなたのAPIキー>"
+# GEMINI_API_KEY="<AIzaSyDbZJWjVlAJ9fw9ogVB6gvH0KUDxJkUD7M>"
 
 import streamlit as st
 from google import genai
