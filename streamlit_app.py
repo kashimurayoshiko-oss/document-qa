@@ -1,12 +1,6 @@
-# requirements:
-#   streamlit>=1.36
-#   google-genai>=0.3.0
-#
-# Streamlit Cloud の Secrets に以下を登録してください:
-# GEMINI_API_KEY="<AIzaSyDbZJWjVlAJ9fw9ogVB6gvH0KUDxJkUD7M>"
+# streamlit_app.py
 
 import streamlit as st
-from google import genai
 
 st.set_page_config(page_title="📄 Document QA (Gemini 2.5 Flash)", page_icon="📄")
 st.title("📄 Document question answering (Gemini 2.5 Flash)")
@@ -15,7 +9,22 @@ st.write(
     "Google Gemini 2.5 Flash が答えます。APIキーは Streamlit の Secrets に保存してください。"
 )
 
-# ✅ Secrets から API キーを取得（未設定なら明示エラーで停止）
+# --- インポート健全性チェック ---
+try:
+    from google import genai
+except Exception as e:
+    st.error(
+        "`from google import genai` のインポートに失敗しました。\n\n"
+        "対応手順：\n"
+        "1) リポジトリ直下に **requirements.txt** を作り、次の2行のみを入れる：\n"
+        "```\nstreamlit>=1.36\ngoogle-genai>=0.3.0\n```\n"
+        "2) プロジェクト直下に `google/` フォルダや `google.py` が無いことを確認（ある場合はリネーム）。\n"
+        "3) **Manage app → Reboot app** で再起動。\n\n"
+        f"詳細: {type(e).__name__}"
+    )
+    st.stop()
+
+# --- Secrets チェック ---
 gemini_api_key = st.secrets.get("GEMINI_API_KEY")
 if not gemini_api_key:
     st.error(
@@ -43,13 +52,13 @@ if uploaded_file and question:
     raw = uploaded_file.getvalue()
     document_text = raw.decode("utf-8", errors="ignore")
 
-    # 送信テキストを過剰に長くしないための簡易トリム（必要に応じて調整）
+    # 過剰トークン抑制（必要に応じて増減可）
     MAX_CHARS = 120_000
     if len(document_text) > MAX_CHARS:
         document_text = document_text[:MAX_CHARS]
         st.info("ドキュメントが長いため先頭部分のみを使用しました。", icon="ℹ️")
 
-    # Gemini へ渡す内容を作成（dict 形式でバージョン差異を回避）
+    # Gemini へ渡す内容（辞書形式でSDK差異を回避）
     contents = [
         {
             "role": "user",
@@ -64,7 +73,7 @@ if uploaded_file and question:
         }
     ]
 
-    # 生成（まずストリーミング、失敗時は非ストリーミングにフォールバック）
+    # 生成（ストリーミング → 失敗時フォールバック）
     with st.chat_message("assistant"):
         try:
             stream = client.models.generate_content_stream(
@@ -84,7 +93,6 @@ if uploaded_file and question:
             st.write_stream(token_stream())
 
         except Exception:
-            # フォールバック（非ストリーミング）
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=contents,
