@@ -1,69 +1,69 @@
 # requirements:
-#   pip install streamlit google-genai
+#   streamlit>=1.36
+#   google-genai>=0.3.0
 
+import os
 import streamlit as st
 from google import genai
 from google.genai import types as genai_types
 
-# タイトルと説明
+st.set_page_config(page_title="Gemini 2.5 Flash Chatbot", page_icon="💬")
 st.title("💬 Chatbot (Gemini 2.5 Flash)")
-st.write(
-    "このチャットボットは Google の **Gemini 2.5 Flash** を使って応答を生成します。\n\n"
-    "利用には Gemini API Key が必要です（Google AI Studio で発行）。"
-)
+st.caption("Google Gemini 2.5 Flash を使ったシンプルなチャットボット")
 
-# Gemini API Key 入力欄
-gemini_api_key = st.text_input("Gemini API Key", type="password")
+# Secrets から読み取り（Cloud では「⚙️ Manage app」> Secrets に保存推奨）
+default_key = st.secrets.get("GEMINI_API_KEY", "")
+gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
+
 if not gemini_api_key:
-    st.info("続行するには Gemini API Key を入力してください。", icon="🗝️")
-else:
-    # Gemini クライアント作成
-    client = genai.Client(api_key=gemini_api_key)
+    st.info("GEMINI_API_KEY を入力（または Secrets に設定）してください。", icon="🗝️")
+    st.stop()
 
-    # メッセージ履歴を session_state に保存
-    if "messages" not in st.session_state:
-        st.session_state.messages = []  # [{"role": "user"|"assistant", "content": "text"}]
+# クライアント生成
+client = genai.Client(api_key=gemini_api_key)
 
-    # 既存メッセージを表示
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# 会話履歴
+if "messages" not in st.session_state:
+    st.session_state.messages = []  # [{"role":"user"|"assistant","content":"..."}]
 
-    # 入力欄
-    if prompt := st.chat_input("なにを話しますか？"):
-        # ユーザーの入力を保存＆表示
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+# 既存メッセージを表示
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
 
-        # Gemini 形式のコンテンツに変換
-        contents = []
-        for m in st.session_state.messages:
-            contents.append(
-                genai_types.Content(
-                    role="user" if m["role"] == "user" else "model",
-                    parts=[genai_types.Part.from_text(m["content"])]
-                )
-            )
+# 入力
+if prompt := st.chat_input("メッセージを入力..."):
+    # ユーザー発話を保存＆表示
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        # Gemini に問い合わせ（ストリーミング）
-        with st.chat_message("assistant"):
-            stream = client.models.generate_content_stream(
-                model="gemini-2.5-flash",
-                contents=contents,
-            )
+    # Gemini 形式へ変換
+    contents = [
+        genai_types.Content(
+            role=("user" if m["role"] == "user" else "model"),
+            parts=[genai_types.Part.from_text(m["content"])]
+        )
+        for m in st.session_state.messages
+    ]
 
-            # トークンを順次表示
-            def token_stream():
-                for event in stream:
-                    if getattr(event, "candidates", None):
-                        cand = event.candidates[0]
-                        if getattr(cand, "content", None) and getattr(cand.content, "parts", None):
-                            for part in cand.content.parts:
-                                if getattr(part, "text", None):
-                                    yield part.text
+    # 生成（ストリーミング）
+    with st.chat_message("assistant"):
+        stream = client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents=contents,
+        )
 
-            response_text = st.write_stream(token_stream())
+        def token_stream():
+            for event in stream:
+                if getattr(event, "candidates", None):
+                    cand = event.candidates[0]
+                    if getattr(cand, "content", None) and getattr(cand.content, "parts", None):
+                        for part in cand.content.parts:
+                            if getattr(part, "text", None):
+                                yield part.text
 
-        # アシスタント応答を保存
-        st.session_state.messages.append({"role": "assistant", "content": response_text})
+        response_text = st.write_stream(token_stream())
+
+    # 応答を履歴に保存
+    st.session_state.messages.append({"role": "assistant", "content": response_text})
